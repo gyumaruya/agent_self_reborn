@@ -5,12 +5,6 @@
         "type": "command",
         "command": "python3 .claude/hooks/session-end-save-state.py"
       }
-    ],
-    "SessionStart": [
-      {
-        "type": "command",
-        "command": "python3 .claude/hooks/session-start-inject-context.py"
-      }
     ]
   }
 }

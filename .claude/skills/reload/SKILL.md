@@ -1,44 +1,88 @@
-# Reload Claude Code
+# /reload -- Self-Restart Claude Code
 
-Restart the current Claude Code session. The wrapper script will detect
-exit code 129 and restart with --resume to continue the session.
+tmux 内で動作中の Claude Code を停止し、同一セッションで再起動する。
 
-## Usage
+## Trigger
 
-User says: /reload, "reload", "restart", "reboot"
+User says: `/reload`, "reload", "restart", "reboot", "再起動"
+
+## Prerequisites
+
+- tmux 内で実行していること（tmux 外では動作しない）
+- `scripts/reborn.sh` が存在すること
+
+## Procedure
+
+When this skill is invoked, execute the following steps in order:
+
+### Step 1: Confirm tmux environment
+
+```bash
+echo "$TMUX_PANE"
+```
+
+If empty, tell the user: "tmux 内で実行してください。再起動にはtmuxが必要です。"
+Abort.
+
+### Step 2: Write handoff.md
+
+Write `.claude/self-reborn/handoff.md` with:
+
+```markdown
+# Handoff
+
+## Restart Reason
+{why you are restarting}
+
+## Current Task
+{what you were working on}
+
+## Next Steps
+{what should be done after restart}
+
+## Important Context
+{decisions made, files changed, blockers, etc.}
+```
+
+Be specific. This is the only context your next self will receive.
+
+### Step 3: Get session ID
+
+```bash
+echo "$CLAUDE_SESSION_ID"
+```
+
+If empty, check the saved file:
+```bash
+cat .claude/self-reborn/session_id 2>/dev/null
+```
+
+### Step 4: Launch restart script in new tmux window
+
+```bash
+tmux new-window -n reborn "./scripts/reborn.sh '$TMUX_PANE' '$SESSION_ID' '$(pwd)'"
+```
+
+After this command, the reborn script will:
+1. Wait 2 seconds
+2. Send Ctrl+C to your pane (stopping you)
+3. Wait for you to exit
+4. Run `claude --resume <session-id>` in your pane
+5. Send the handoff prompt
+6. Close itself
+
+**You will be terminated after step 4.** This is expected.
 
 ## Arguments
 
 | Argument | Action |
 |----------|--------|
-| (empty) | Reload immediately |
-| `<reason>` | Save reason to state file, then reload |
-
-## How it works
-
-1. Save restart reason to `.claude/self-reborn/restart_reason` (if provided)
-2. Save current session context to `.claude/self-reborn/context.md`
-3. Send SIGHUP to parent process: `kill -HUP $PPID`
-4. Wrapper detects exit 129 and restarts with `--resume`
-
-## Implementation
-
-When this skill is invoked:
-
-1. If arguments are provided, write them to `.claude/self-reborn/restart_reason`:
-```bash
-echo "{reason}" > .claude/self-reborn/restart_reason
-```
-
-2. Send the reload signal:
-```bash
-kill -HUP $PPID
-```
-
-That's it. The wrapper script handles the rest.
+| (empty) | Interactive: ask for restart reason, then execute |
+| `<reason>` | Use the given reason, execute immediately |
 
 ## Safety
 
-- Only works inside the `claude-self-reborn.sh` wrapper
-- Without the wrapper, SIGHUP just terminates the session (no restart)
-- Crash counter prevents infinite restart loops
+- Only works inside tmux
+- If reborn.sh fails, the original tmux pane remains (just at shell prompt)
+- No wrapper loop -- one-shot restart
+- Claude can be started normally again from the shell if anything goes wrong

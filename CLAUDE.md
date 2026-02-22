@@ -1,50 +1,48 @@
 # claude_self_reborn
 
-Claude Code が自身を停止・再起動できるセルフリスタート機構。
-スキル開発や自己改善ループの基盤。
+Claude Code が自身を停止・再起動できる仕組み。詳細は `README.md` を参照。
 
-詳細なドキュメントは `README.md` を参照。
+## Self-Reborn: 使い方
 
-## Self-Reborn System
+### 前提
 
-### How it Works
+- tmux 内で実行していること
 
-1. `claude-self-reborn.sh` が Claude Code をラップして実行
-2. Claude が `kill -HUP $PPID` を実行すると exit code 129 で終了
-3. ラッパーが 129 を検出し、`--resume` で同一セッションを再起動
-4. `SessionEnd` hook がセッションIDを保存、`SessionStart` hook が前回の状態を注入
-
-### Self-Restart の方法
-
-再起動したい場合は以下を実行:
+### 再起動の手順
 
 ```bash
-# 1. 理由を書く（任意）
-echo "理由" > .claude/self-reborn/restart_reason
+# 1. handoff.md に引き継ぎ情報を書く
+mkdir -p .claude/self-reborn
+cat > .claude/self-reborn/handoff.md << 'EOF'
+# Handoff
+## Restart Reason
+{なぜ再起動するか}
+## Current Task
+{何をしていたか}
+## Next Steps
+{次に何をすべきか}
+## Important Context
+{引き継ぎたい情報}
+EOF
 
-# 2. コンテキストを書く（任意）
-echo "引き継ぎ内容" > .claude/self-reborn/context.md
+# 2. セッションIDを取得
+SESSION_ID=$(cat .claude/self-reborn/session_id)
 
-# 3. 再起動シグナル
-kill -HUP $PPID
+# 3. 別ウィンドウで reborn.sh を起動
+tmux new-window -n reborn "./scripts/reborn.sh '$TMUX_PANE' '$SESSION_ID' '$(pwd)'"
 ```
+
+reborn.sh が Claude を停止 → 再起動 → handoff.md 読み込み指示を送る。
 
 ### Key Files
 
 | File | Purpose |
 |------|---------|
-| `scripts/claude-self-reborn.sh` | 再起動ラッパー（exit 129 検出ループ） |
-| `scripts/start-tmux.sh` | tmux セッション起動 |
+| `scripts/reborn.sh` | 再起動実行（別 tmux ウィンドウで実行） |
 | `.claude/skills/reload/SKILL.md` | /reload スキル定義 |
 | `.claude/hooks/session-end-save-state.py` | 終了時: セッションID保存 |
-| `.claude/hooks/session-start-inject-context.py` | 起動時: 前回状態注入 |
-| `.claude/self-reborn/` | ランタイム状態（gitignore対象） |
-
-### Safety
-
-- 連続クラッシュ5回でラッパー停止
-- 指数バックオフ（2s, 4s, 8s, 16s, 32s, max 60s）
-- exit 0 でラッパー完全停止（無限ループなし）
+| `.claude/self-reborn/handoff.md` | 引き継ぎ情報（gitignore対象） |
+| `.claude/self-reborn/session_id` | セッションID（gitignore対象） |
 
 ## Scrum
 
