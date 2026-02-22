@@ -21,6 +21,8 @@ An Increment is "Done" when ALL criteria are met:
 
 - [ ] Acceptance criteria from backlog item are met
 - [ ] Increment is usable (not half-finished)
+- [ ] Item status in current.md matches PO Review result (approved / needs-revision)
+- [ ] PO Review history is recorded in the role interactions log
 
 ---
 
