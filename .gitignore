@@ -1,0 +1,15 @@
+# Self-reborn runtime state (session-specific, not committed)
+.claude/self-reborn/session_id
+.claude/self-reborn/restart_reason
+.claude/self-reborn/context.md
+.claude/self-reborn/crash_count
+.claude/self-reborn/restart.log
+.claude/self-reborn/session_history.jsonl
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+.DS_Store
