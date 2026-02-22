@@ -60,11 +60,11 @@ HANDOFF_EOF
 ### Step 3: セッション ID を取得
 
 ```bash
-SESSION_ID=$(cat .claude/self-reborn/session_id 2>/dev/null || echo "")
+SESSION_ID="${CLAUDE_SESSION_ID:-}"
 echo "SESSION_ID=$SESSION_ID"
 ```
 
-SESSION_ID が空の場合も `--continue` で代用できるので続行可能。
+`$CLAUDE_SESSION_ID` は Claude Code が設定する環境変数。空の場合も `--continue` で代用できるので続行可能。
 
 ### Step 4: 再起動スクリプトを生成して実行
 
@@ -90,8 +90,16 @@ log() { echo "[reborn] \$(date '+%H:%M:%S') \$1"; }
 log "Waiting 2s before stopping Claude..."
 sleep 2
 
-log "Sending Ctrl+C to \$TARGET_PANE"
-tmux send-keys -t "\$TARGET_PANE" C-c
+# Kill Claude Code process in the target pane
+PANE_PID=\$(tmux display-message -t "\$TARGET_PANE" -p '#{pane_pid}')
+CLAUDE_PID=\$(pgrep -P "\$PANE_PID" | head -1)
+if [ -n "\$CLAUDE_PID" ]; then
+    log "Killing Claude (PID=\$CLAUDE_PID, parent=\$PANE_PID) in \$TARGET_PANE"
+    kill "\$CLAUDE_PID"
+else
+    log "No Claude process found under PID \$PANE_PID, sending Ctrl+C"
+    tmux send-keys -t "\$TARGET_PANE" C-c C-c
+fi
 
 # Wait for Claude to exit (poll pane_current_command)
 log "Waiting for Claude to exit..."
@@ -99,9 +107,9 @@ for i in \$(seq 1 30); do
     sleep 1
     fg=\$(tmux display-message -t "\$TARGET_PANE" -p '#{pane_current_command}' 2>/dev/null || echo "")
     case "\$fg" in bash|zsh|sh|fish) log "Claude exited (\${i}s)"; break;; esac
-    if [ "\$i" -eq 5 ] || [ "\$i" -eq 15 ]; then
-        log "Still running (\$fg), retrying Ctrl+C..."
-        tmux send-keys -t "\$TARGET_PANE" C-c
+    if [ "\$i" -eq 10 ]; then
+        log "Still running (\$fg), sending SIGKILL..."
+        kill -9 "\$CLAUDE_PID" 2>/dev/null
     fi
 done
 
