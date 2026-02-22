@@ -138,10 +138,41 @@ else
     tmux send-keys -t "\$TARGET_PANE" "cd '\$PROJECT_DIR' && claude --continue" Enter
 fi
 
-# Send handoff prompt after Claude starts
-log "Waiting 8s for Claude to start..."
-sleep 8
+# Phase 1: Wait for Claude process to start
+log "Phase 1: Waiting for Claude process to start..."
+for i in \$(seq 1 30); do
+    sleep 1
+    fg=\$(tmux display-message -t "\$TARGET_PANE" -p '#{pane_current_command}' 2>/dev/null || echo "")
+    case "\$fg" in bash|zsh|sh|fish) ;; *)
+        log "Claude process detected: \$fg (\${i}s)"
+        break
+    ;; esac
+    if [ "\$i" -eq 30 ]; then log "Timeout waiting for process start"; fi
+done
+
+# Phase 2: Wait for UI to stabilize (content stops changing)
+log "Phase 2: Waiting for Claude UI to stabilize..."
+PREV_HASH=""
+STABLE_COUNT=0
+for i in \$(seq 1 90); do
+    sleep 2
+    CUR_HASH=\$(tmux capture-pane -t "\$TARGET_PANE" -p 2>/dev/null | md5 -q)
+    if [ "\$CUR_HASH" = "\$PREV_HASH" ]; then
+        STABLE_COUNT=\$((STABLE_COUNT + 1))
+        if [ "\$STABLE_COUNT" -ge 2 ]; then
+            log "Claude UI stable (content unchanged for 4s, total \$((i * 2))s)"
+            break
+        fi
+    else
+        STABLE_COUNT=0
+    fi
+    PREV_HASH="\$CUR_HASH"
+    if [ "\$i" -eq 90 ]; then log "Timeout (180s), sending prompt anyway"; fi
+done
+
+# Send handoff prompt
 if [ -f "\$HANDOFF" ]; then
+    sleep 1
     tmux send-keys -t "\$TARGET_PANE" ".claude/self-reborn/handoff.md を読んで、再起動理由と次のステップを確認して作業を続けてください。"
     sleep 0.5
     tmux send-keys -t "\$TARGET_PANE" Enter
