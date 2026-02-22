@@ -142,7 +142,9 @@ fi
 log "Waiting 8s for Claude to start..."
 sleep 8
 if [ -f "\$HANDOFF" ]; then
-    tmux send-keys -t "\$TARGET_PANE" ".claude/self-reborn/handoff.md を読んで、再起動理由と次のステップを確認して作業を続けてください。" Enter
+    tmux send-keys -t "\$TARGET_PANE" ".claude/self-reborn/handoff.md を読んで、再起動理由と次のステップを確認して作業を続けてください。"
+    sleep 0.5
+    tmux send-keys -t "\$TARGET_PANE" Enter
     log "Handoff prompt sent"
 fi
 
