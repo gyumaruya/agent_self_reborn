@@ -372,5 +372,5 @@ fi
 
 - Claude Code CLI: `claude --help`
 - Session storage: `~/.claude/projects/<project>/`
-- Hook example: `/Users/{username}/minions/resources/hooks/session-end.py`
+- Hook example: `~/projects/resources/hooks/session-end.py`
 - tmux version: 3.6a at `/opt/homebrew/bin/tmux`
