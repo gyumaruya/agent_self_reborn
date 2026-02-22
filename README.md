@@ -19,15 +19,17 @@ Claude Code が自身を停止し、再起動できるようにする仕組み�
                                     ↓
                           Claude が「再起動したい」と判断
                                     ↓
-                          handoff.md に引き継ぎ情報を書く
-                          別の tmux ウィンドウで reborn.sh を起動
+                          /reload スキルを実行:
+                            1. handoff.md に引き継ぎ情報を書く
+                            2. 一時スクリプトを生成
+                            3. tmux の別ウィンドウでスクリプトを起動
                                     ↓
-                          reborn.sh が:
-                            1. 元のウィンドウの Claude を Ctrl+C で停止
-                            2. 停止を確認
-                            3. --resume で同じセッションを再起動
-                            4. 「handoff.md を読んで続きをやって」と入力
-                            5. 自分のウィンドウを閉じる
+                          一時スクリプトが:
+                            a. 元のウィンドウの Claude を Ctrl+C で停止
+                            b. 停止を確認
+                            c. --resume で同じセッションを再起動
+                            d. 「handoff.md を読んで続きをやって」と入力
+                            e. 自分のウィンドウを閉じて自己削除
                                     ↓
                           Claude が handoff.md を読んで作業継続
 ```
@@ -38,7 +40,7 @@ Claude Code が自身を停止し、再起動できるようにする仕組み�
 - ユーザーの介入が不要
 
 **変わらないこと:**
-- Claude Code 自体に変更なし（外部スクリプトのみ）
+- Claude Code 自体に変更なし（スキルと hook のみ）
 - 通常の `claude` コマンドとして普通に使える
 - tmux なしでも動く（再起動機能だけが使えない）
 
@@ -53,39 +55,16 @@ claude
 
 特別な起動方法は不要。普通に使う。
 
-### 2. Claude が再起動を実行（/reload）
+### 2. Claude が /reload を実行
 
-Claude が再起動すべきと判断した時、以下を実行する:
+Claude が再起動すべきと判断した時、`/reload` スキルに従って:
 
-```bash
-# 1. 引き継ぎ情報を書く
-mkdir -p .claude/self-reborn
-cat > .claude/self-reborn/handoff.md << 'EOF'
-# Handoff
+1. `$TMUX_PANE` を確認（tmux 内か検証）
+2. `.claude/self-reborn/handoff.md` に引き継ぎ情報を書く
+3. セッション ID を取得
+4. 一時スクリプトを生成し `tmux new-window` で実行
 
-## Restart Reason
-コンテキストが重くなったため、不要な履歴を切り捨てる
-
-## Current Task
-Sprint 1 の item 3 を実装中
-
-## Next Steps
-- tests/test_api.py の修正を完了する
-- lint を通す
-
-## Important Context
-- API の認証方式は JWT に決定済み
-- データベースは SQLite を使用
-EOF
-
-# 2. セッションIDを取得
-SESSION_ID=$(cat .claude/self-reborn/session_id)
-
-# 3. 別の tmux ウィンドウで reborn.sh を起動
-tmux new-window -n reborn "./scripts/reborn.sh '$TMUX_PANE' '$SESSION_ID' '$(pwd)'"
-```
-
-この後、reborn.sh が Claude を停止 → 再起動 → handoff.md の読み込みを指示する。
+全てのステップは Claude Code 自身が bash で実行する。外部スクリプトは不要。
 
 ### 3. 再起動後
 
@@ -95,34 +74,34 @@ Claude は前のセッション履歴を持った状態で再起動し、最初�
 ## ファイル構成
 
 ```
-scripts/
-  reborn.sh                # 再起動実行スクリプト（別 tmux ウィンドウで実行）
+reload/
+  SKILL.md                 # /reload スキル（再起動の全手順を定義）
 
 .claude/
   settings.json            # hooks 登録
-  skills/reload/SKILL.md   # /reload スキル定義
   hooks/
     session-end-save-state.py   # 終了時: セッションID保存
   self-reborn/                  # ランタイム状態（gitignore 対象）
     session_id                  # 現在のセッションID
     handoff.md                  # 引き継ぎ情報（次回起動時に読まれる）
     session_history.jsonl       # セッション履歴
-
-tests/
-  test_wrapper.sh          # reborn.sh のテスト (5件)
-  test_hooks.py            # hooks のテスト (3件)
 ```
 
-## reborn.sh の動作
+## /reload スキルの動作
 
-`scripts/reborn.sh <tmux-pane> <session-id> <project-dir>` は:
+Claude Code が `/reload` を実行すると:
 
-1. **2秒待つ** -- Claude が最後の出力を終えるのを待つ
-2. **Ctrl+C を送信** -- 元のペインの Claude を停止（5秒、15秒後に再送）
-3. **停止を確認** -- tmux の `pane_current_command` をポーリング（最大30秒）
-4. **再起動** -- `claude --resume <session-id>` を元のペインで実行
-5. **初回プロンプト送信** -- handoff.md がある場合、読み込み指示を送信
-6. **自己終了** -- ウィンドウを閉じる
+1. **tmux 確認** -- `$TMUX_PANE` が空なら中止
+2. **handoff.md 作成** -- 再起動理由、現在のタスク、次のステップ、重要なコンテキストを記載
+3. **セッション ID 取得** -- `.claude/self-reborn/session_id` から読み取り
+4. **一時スクリプト生成** -- `/tmp/claude-reborn-XXXXXX.sh` を作成
+5. **別ウィンドウで実行** -- `tmux new-window` でスクリプトを起動
+
+一時スクリプトの動作:
+- 2秒待機 → 元のペインに Ctrl+C 送信 → 停止確認（最大30秒ポーリング）
+- `claude --resume <session-id>` を元のペインで実行
+- 8秒待機 → handoff プロンプト送信
+- 自己削除して終了
 
 ## 制約
 
@@ -133,44 +112,33 @@ tests/
 | **tmux 必須**（再起動機能に限り） | 別ウィンドウから元のペインを操作する必要がある |
 | **`--resume` と `-p` は非互換** | Claude Code の仕様。初回プロンプトは tmux send-keys で送信 |
 | **起動待ちは固定 8秒** | Claude の起動完了を検出する手段がないため |
-| **bash 3.2 互換** | macOS デフォルトの古い bash でも動作する |
 
 ### 設計上の制約
 
 | 制約 | 説明 |
 |------|------|
 | **「いつ再起動するか」は Claude の判断** | 自動トリガーは未実装。Claude が明示的に /reload を使う |
-| **handoff.md は手動作成** | Claude が自分で書く。書かなければ引き継ぎなしで再起動 |
+| **handoff.md は Claude が書く** | 書かなければ引き継ぎなしで再起動 |
 | **レート制限未対応** | API レート制限に当たった場合のリカバリは未実装 |
-| **1ペイン1Claude** | 同じペインで複数の Claude を同時実行するとおかしくなる |
 
 ### セキュリティ
 
-- reborn.sh は指定されたペインにのみ干渉する
-- Claude Code 自体には一切の変更なし
-- セッションIDはローカルファイルに保存（gitignore対象）
-
-## 設定
-
-特別な設定は不要。唯一の設定は `.claude/settings.json` の SessionEnd hook:
-
-```json
-{
-  "hooks": {
-    "SessionEnd": [{
-      "type": "command",
-      "command": "python3 .claude/hooks/session-end-save-state.py"
-    }]
-  }
-}
-```
+- 一時スクリプトは実行後に自己削除
+- 指定されたペインにのみ干渉
+- Claude Code 自体に変更なし
+- セッション ID はローカルファイルに保存（gitignore 対象）
 
 ## テスト
 
 ```bash
-# reborn.sh のテスト
-bash tests/test_wrapper.sh
-
 # hooks のテスト
 python3 tests/test_hooks.py
+```
+
+## インストール
+
+他のプロジェクトで使う場合:
+
+```bash
+npx skills add <owner>/claude_self_reborn
 ```
